@@ -26,7 +26,6 @@
 #define END         "</font>\n"
 
 #include <sys/types.h>
-//#include <dirent.h>
 #include <glob.h>
 
 #include <gtk/gtkclist.h>
@@ -47,156 +46,156 @@
 static GaimPluginPrefFrame *
 get_plugin_pref_frame(GaimPlugin *plugin)
 {
-	GaimPluginPrefFrame *frame;
-	GaimPluginPref *pref;
+    GaimPluginPrefFrame *frame;
+    GaimPluginPref *pref;
 
-	frame = gaim_plugin_pref_frame_new();
+    frame = gaim_plugin_pref_frame_new();
 
-	pref = gaim_plugin_pref_new_with_label(_("GAINT Preferences"));
-	gaim_plugin_pref_frame_add(frame, pref);
+    pref = gaim_plugin_pref_new_with_label(_("GAINT Preferences"));
+    gaim_plugin_pref_frame_add(frame, pref);
 
-	pref = gaim_plugin_pref_new_with_name_and_label(PREF_TRIGGER, _("Trigger Phrase"));
-	gaim_plugin_pref_frame_add(frame, pref);
+    pref = gaim_plugin_pref_new_with_name_and_label(PREF_TRIGGER, _("Trigger Phrase"));
+    gaim_plugin_pref_frame_add(frame, pref);
 
-	pref = gaim_plugin_pref_new_with_name_and_label(PREF_PERMITLIST,
+    pref = gaim_plugin_pref_new_with_name_and_label(PREF_PERMITLIST,
                     _("Add the names of the buddies between \na pair of #'s (eg. #abc#def#)"));
-	gaim_plugin_pref_frame_add(frame, pref);
+    gaim_plugin_pref_frame_add(frame, pref);
 
-	pref = gaim_plugin_pref_new_with_name_and_label(PREF_ECHOSEND, _("Do you want to see what response GAINT is sending?"));
-	gaim_plugin_pref_frame_add(frame, pref);
+    pref = gaim_plugin_pref_new_with_name_and_label(PREF_ECHOSEND, _("Do you want to see what response GAINT is sending?"));
+    gaim_plugin_pref_frame_add(frame, pref);
 
-	/* TODO: add a check-list of buddies here. the list will initially be empty.
+    /* TODO: add a check-list of buddies here. the list will initially be empty.
      * we'll use the connect/disconnet callback functions to populate/reset the list.
      * may need to go through the GTK-doc for this one :(
      */
 
-	return frame;
+    return frame;
 }
 /****** UI Stuff [end] ********/
 
 /* these defines ripped from gtkimhtl.c :-) */
-#define VALID_TAG(x)	if (!g_ascii_strncasecmp (string, x ">", strlen (x ">"))) {	\
-				*len = strlen (x) + 1;				\
-				return TRUE;					\
+#define VALID_TAG(x)    if (!g_ascii_strncasecmp (string, x ">", strlen (x ">"))) {    \
+                *len = strlen (x) + 1;            	\
+                return TRUE;            		\
             }
 
-#define VALID_OPT_TAG(x)	if (!g_ascii_strncasecmp (string, x " ", strlen (x " "))) {	\
-					const gchar *c = string + strlen (x " ");	\
-					gchar e = '"';					\
-					gboolean quote = FALSE;				\
-					while (*c) {					\
-						if (*c == '"' || *c == '\'') {		\
-							if (quote && (*c == e))		\
-								quote = !quote;		\
-							else if (!quote) {		\
-								quote = !quote;		\
-								e = *c;			\
-							}				\
-						} else if (!quote && (*c == '>'))	\
-							break;				\
-						c++;					\
-					}						\
-					if (*c) {					\
-						*len = c - string + 1;			\
-						return TRUE;				\
-					}						\
-				}
+#define VALID_OPT_TAG(x)    if (!g_ascii_strncasecmp (string, x " ", strlen (x " "))) {    \
+                    const gchar *c = string + strlen (x " ");    \
+                    gchar e = '"';        			\
+                    gboolean quote = FALSE;        		\
+                    while (*c) {        			\
+                        if (*c == '"' || *c == '\'') {    	\
+                            if (quote && (*c == e))		\
+                            	quote = !quote;		\
+                            else if (!quote) {		\
+                            	quote = !quote;		\
+                            	e = *c;			\
+                            }				\
+                        } else if (!quote && (*c == '>'))    \
+                            break;				\
+                        c++;    				\
+                    }        				\
+                    if (*c) {        			\
+                        *len = c - string + 1;    		\
+                        return TRUE;    			\
+                    }        				\
+                }
 /* this functions has also been ripped from gtkimhtml.c.
  * changed slightly (last couple of lines)
  */
 static gboolean isHtmlTag(const gchar *string, gint *len)
 {
-	char *close;
+    char *close;
 
-	if (!(close = strchr (string, '>')))
-		return FALSE;
+    if (!(close = strchr (string, '>')))
+        return FALSE;
 
-	VALID_TAG ("B");
-	VALID_TAG ("BOLD");
-	VALID_TAG ("/B");
-	VALID_TAG ("/BOLD");
-	VALID_TAG ("I");
-	VALID_TAG ("ITALIC");
-	VALID_TAG ("/I");
-	VALID_TAG ("/ITALIC");
-	VALID_TAG ("U");
-	VALID_TAG ("UNDERLINE");
-	VALID_TAG ("/U");
-	VALID_TAG ("/UNDERLINE");
-	VALID_TAG ("S");
-	VALID_TAG ("STRIKE");
-	VALID_TAG ("/S");
-	VALID_TAG ("/STRIKE");
-	VALID_TAG ("SUB");
-	VALID_TAG ("/SUB");
-	VALID_TAG ("SUP");
-	VALID_TAG ("/SUP");
-	VALID_TAG ("PRE");
-	VALID_TAG ("/PRE");
-	VALID_TAG ("TITLE");
-	VALID_TAG ("/TITLE");
-	VALID_TAG ("BR");
-	VALID_TAG ("HR");
-	VALID_TAG ("/FONT");
-	VALID_TAG ("/A");
-	VALID_TAG ("P");
-	VALID_TAG ("/P");
-	VALID_TAG ("H3");
-	VALID_TAG ("/H3");
-	VALID_TAG ("HTML");
-	VALID_TAG ("/HTML");
-	VALID_TAG ("BODY");
-	VALID_TAG ("/BODY");
-	VALID_TAG ("FONT");
-	VALID_TAG ("HEAD");
-	VALID_TAG ("/HEAD");
-	VALID_TAG ("BINARY");
-	VALID_TAG ("/BINARY");
+    VALID_TAG ("B");
+    VALID_TAG ("BOLD");
+    VALID_TAG ("/B");
+    VALID_TAG ("/BOLD");
+    VALID_TAG ("I");
+    VALID_TAG ("ITALIC");
+    VALID_TAG ("/I");
+    VALID_TAG ("/ITALIC");
+    VALID_TAG ("U");
+    VALID_TAG ("UNDERLINE");
+    VALID_TAG ("/U");
+    VALID_TAG ("/UNDERLINE");
+    VALID_TAG ("S");
+    VALID_TAG ("STRIKE");
+    VALID_TAG ("/S");
+    VALID_TAG ("/STRIKE");
+    VALID_TAG ("SUB");
+    VALID_TAG ("/SUB");
+    VALID_TAG ("SUP");
+    VALID_TAG ("/SUP");
+    VALID_TAG ("PRE");
+    VALID_TAG ("/PRE");
+    VALID_TAG ("TITLE");
+    VALID_TAG ("/TITLE");
+    VALID_TAG ("BR");
+    VALID_TAG ("HR");
+    VALID_TAG ("/FONT");
+    VALID_TAG ("/A");
+    VALID_TAG ("P");
+    VALID_TAG ("/P");
+    VALID_TAG ("H3");
+    VALID_TAG ("/H3");
+    VALID_TAG ("HTML");
+    VALID_TAG ("/HTML");
+    VALID_TAG ("BODY");
+    VALID_TAG ("/BODY");
+    VALID_TAG ("FONT");
+    VALID_TAG ("HEAD");
+    VALID_TAG ("/HEAD");
+    VALID_TAG ("BINARY");
+    VALID_TAG ("/BINARY");
 
-	VALID_OPT_TAG ("HR");
-	VALID_OPT_TAG ("FONT");
-	VALID_OPT_TAG ("BODY");
-	VALID_OPT_TAG ("A");
-	VALID_OPT_TAG ("IMG");
-	VALID_OPT_TAG ("P");
-	VALID_OPT_TAG ("H3");
-	VALID_OPT_TAG ("HTML");
+    VALID_OPT_TAG ("HR");
+    VALID_OPT_TAG ("FONT");
+    VALID_OPT_TAG ("BODY");
+    VALID_OPT_TAG ("A");
+    VALID_OPT_TAG ("IMG");
+    VALID_OPT_TAG ("P");
+    VALID_OPT_TAG ("H3");
+    VALID_OPT_TAG ("HTML");
 
-	VALID_TAG ("CITE");
-	VALID_TAG ("/CITE");
-	VALID_TAG ("EM");
-	VALID_TAG ("/EM");
-	VALID_TAG ("STRONG");
-	VALID_TAG ("/STRONG");
+    VALID_TAG ("CITE");
+    VALID_TAG ("/CITE");
+    VALID_TAG ("EM");
+    VALID_TAG ("/EM");
+    VALID_TAG ("STRONG");
+    VALID_TAG ("/STRONG");
 
-	VALID_OPT_TAG ("SPAN");
-	VALID_TAG ("/SPAN");
-	VALID_TAG ("BR/"); /* hack until gtkimhtml handles things better */
-	VALID_TAG ("IMG");
-	VALID_TAG("SPAN");
-	VALID_OPT_TAG("BR");
+    VALID_OPT_TAG ("SPAN");
+    VALID_TAG ("/SPAN");
+    VALID_TAG ("BR/"); /* hack until gtkimhtml handles things better */
+    VALID_TAG ("IMG");
+    VALID_TAG("SPAN");
+    VALID_OPT_TAG("BR");
 
-	if (!g_ascii_strncasecmp(string, "!--", strlen ("!--"))) {
-		gchar *e = strstr (string + strlen("!--"), "-->");
-		if (e) {
-			/*
-			 * If we uncomment the following line then HTML comments will be
-			 * hidden.  This is good because it means when a WinAIM users pastes
-			 * part of a conversation to you, the screen names won't be
-			 * duplicated (because WinAIM pastes an HTML comment containing the
-			 * screen name, for some reason).
-			 *
-			 * However, uncommenting this is bad because we use HTML comment
-			 * tags to print timestamps to conversations (at least, I think...)
-			 *
-			 * KingAnt thinks it would be best to display timestamps using
-			 * something other than comment tags.
-			 */
-			/* *type = -1; */
-			*len = e - string + strlen ("-->");
-			return TRUE;
-		}
-	}
+    if (!g_ascii_strncasecmp(string, "!--", strlen ("!--"))) {
+        gchar *e = strstr (string + strlen("!--"), "-->");
+        if (e) {
+            /*
+             * If we uncomment the following line then HTML comments will be
+             * hidden.  This is good because it means when a WinAIM users pastes
+             * part of a conversation to you, the screen names won't be
+             * duplicated (because WinAIM pastes an HTML comment containing the
+             * screen name, for some reason).
+             *
+             * However, uncommenting this is bad because we use HTML comment
+             * tags to print timestamps to conversations (at least, I think...)
+             *
+             * KingAnt thinks it would be best to display timestamps using
+             * something other than comment tags.
+             */
+            /* *type = -1; */
+            *len = e - string + strlen ("-->");
+            return TRUE;
+        }
+    }
     return FALSE;
 }
 
@@ -406,7 +405,7 @@ help              -- shows this help.");
 }
 
 static gboolean receiving_im_msg_cb(GaimAccount *account, char **sender, char **buffer,
-				   int *flags, void *data)
+                   int *flags, void *data)
 {
     static GString * pwd = NULL;
     if(pwd == NULL)
@@ -549,7 +548,7 @@ static gboolean receiving_im_msg_cb(GaimAccount *account, char **sender, char **
     }
 skip:
     g_string_free(message, TRUE);
-	return FALSE;
+    return FALSE;
 }
 
 /**************************************************************************
@@ -558,56 +557,56 @@ skip:
 static gboolean
 plugin_load(GaimPlugin *plugin)
 {
-	void *conv_handle = gaim_conversations_get_handle();
+    void *conv_handle = gaim_conversations_get_handle();
 
     gaim_signal_connect(conv_handle, "receiving-im-msg",
-						plugin, GAIM_CALLBACK(receiving_im_msg_cb), NULL);
-	return TRUE;
+                        plugin, GAIM_CALLBACK(receiving_im_msg_cb), NULL);
+    return TRUE;
 }
 
 
 static GaimPluginUiInfo prefs_info =
 {
-	get_plugin_pref_frame
+    get_plugin_pref_frame
 };
 
 static GaimPluginInfo info =
 {
-	GAIM_PLUGIN_MAGIC,
-	GAIM_MAJOR_VERSION,
-	GAIM_MINOR_VERSION,
-	GAIM_PLUGIN_STANDARD,                             /**< type           */
-	NULL,                                             /**< ui_requirement */
-	0,                                                /**< flags          */
-	NULL,                                             /**< dependencies   */
-	GAIM_PRIORITY_DEFAULT,                            /**< priority       */
+    GAIM_PLUGIN_MAGIC,
+    GAIM_MAJOR_VERSION,
+    GAIM_MINOR_VERSION,
+    GAIM_PLUGIN_STANDARD,                             /**< type           */
+    NULL,                                             /**< ui_requirement */
+    0,                                                /**< flags          */
+    NULL,                                             /**< dependencies   */
+    GAIM_PRIORITY_DEFAULT,                            /**< priority       */
 
-	PLUGIN_ID,                                        /**< id             */
-	N_("GAim Is Not Telnet"),                         /**< name           */
-	VERSION,                                          /**< version        */
-	                                                  /**  summary        */
-	N_("Remotely share files."),
-	                                                  /**  description    */
-	N_("Buddies can copy/send files even when you are away."),
-	"Sabit Anjum Sayeed <sabit_a_s@yahoo.com>, Sadrul Habib Chowdhury (imadil@gmail.com)",
+    PLUGIN_ID,                                        /**< id             */
+    N_("GAim Is Not Telnet"),                         /**< name           */
+    VERSION,                                          /**< version        */
+                                                      /**  summary        */
+    N_("Remotely share files."),
+                                                      /**  description    */
+    N_("Buddies can copy/send files even when you are away."),
+    "Sabit Anjum Sayeed <sabitas@gmail.com>, Sadrul Habib Chowdhury (imadil@gmail.com)",
                                                       /**< author         */
-	GAIM_WEBSITE,                                     /**< homepage       */
+    GAIM_WEBSITE,                                     /**< homepage       */
 
-	plugin_load,                                      /**< load           */
-	NULL,                                             /**< unload         */
-	NULL,                                             /**< destroy        */
+    plugin_load,                                      /**< load           */
+    NULL,                                             /**< unload         */
+    NULL,                                             /**< destroy        */
 
-	NULL,                                             /**< ui_info        */
-	NULL,                                             /**< extra_info     */
-	&prefs_info,                                      /**< preferece      */
-	NULL
+    NULL,                                             /**< ui_info        */
+    NULL,                                             /**< extra_info     */
+    &prefs_info,                                      /**< preferece      */
+    NULL
 };
 
 static void
 init_plugin(GaimPlugin *plugin)
 {
-	gaim_prefs_add_none(PREF_ROOT);
-	gaim_prefs_add_string(PREF_TRIGGER, "!gaint");
+    gaim_prefs_add_none(PREF_ROOT);
+    gaim_prefs_add_string(PREF_TRIGGER, "!gaint");
     gaim_prefs_add_string(PREF_PERMITLIST, "");
     gaim_prefs_add_bool(PREF_ECHOSEND, FALSE);
 }
