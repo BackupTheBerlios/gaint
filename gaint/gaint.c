@@ -1,14 +1,12 @@
 /**
  * GAim Is Not Telnet: GAINT
  *
- * @authors: Sabit Anjum Sayeed (sabitas@gmail.com)
- *           Sadrul Habib Chowdhury (imadil@gmail.com)
+ * @authors: Sabit Anjum Sayeed <sabitas@gmail.com>
+ *           Sadrul Habib Chowdhury <imadil@gmail.com>
  */
 
 /* TODO:
  *      - send large files in small-sized (~1MB?) files
- *      - keep a hashtable of `pwd`s for each user, rather than sharing the same one : DONE: 29jan1953
- *      - new feature `glob`    : DONE: 13jan0202
  */
 
 #define PLUGIN_ID   "GAINT"
@@ -42,39 +40,228 @@
 #include "ft.h"
 #include "gtkprefs.h"
 #include "gtkutils.h"
+#include "gtkplugin.h"
 
+static gboolean verifySharePerm(char *sender);
 /****** UI Stuff [start] ********/
-static GaimPluginPrefFrame *
-get_plugin_pref_frame(GaimPlugin *plugin)
+static GList * addBuddyToList(GaimBlistNode * nd, GList * list)
 {
-    GaimPluginPrefFrame *frame;
-    GaimPluginPref *pref;
-
-    frame = gaim_plugin_pref_frame_new();
-
-    pref = gaim_plugin_pref_new_with_label(_("GAINT Preferences"));
-    gaim_plugin_pref_frame_add(frame, pref);
-
-    pref = gaim_plugin_pref_new_with_name_and_label(PREF_TRIGGER, _("Trigger Phrase"));
-    gaim_plugin_pref_frame_add(frame, pref);
-
-    pref = gaim_plugin_pref_new_with_name_and_label(PREF_PERMITLIST,
-                    _("Add the names of the buddies between \na pair of #'s (eg. #abc#def#)"));
-    gaim_plugin_pref_frame_add(frame, pref);
-
-    pref = gaim_plugin_pref_new_with_name_and_label(PREF_HOME, _("Default Working Directory"));
-    gaim_plugin_pref_frame_add(frame, pref);
-
-    pref = gaim_plugin_pref_new_with_name_and_label(PREF_ECHOSEND, _("Do you want to see what response GAINT is sending?"));
-    gaim_plugin_pref_frame_add(frame, pref);
-
-    /* TODO: add a check-list of buddies here. the list will initially be empty.
-     * we'll use the connect/disconnet callback functions to populate/reset the list.
-     * may need to go through the GTK-doc for this one :(
-     */
-
-    return frame;
+    if(nd == NULL)
+        return list;
+    while(nd)
+    {
+        if(GAIM_BLIST_NODE_IS_GROUP(nd))
+        {
+            list = addBuddyToList(nd->child, list);
+        }
+        else if(GAIM_BLIST_NODE_IS_CONTACT(nd))
+        {
+            char * name = (char*)gaim_contact_get_alias((GaimContact*)nd);
+            if(name && *name)
+            {
+                list = g_list_append(list, name); 
+            }
+        }
+        nd = nd->next;
+    }
+    return list;
 }
+
+static GList * createList()
+{
+    GList * list = NULL;
+    GaimBuddyList * gaimlist = gaim_get_blist();
+    if(gaimlist)
+    {
+        GaimBlistNode *nd = gaimlist->root;
+        list = addBuddyToList(nd, list);
+    }
+    return list;
+}
+
+static GtkTreeModel * createModel (void)
+{
+    gint i = 0;
+    GtkListStore *store;
+    GtkTreeIter iter;
+    GList * list = createList();
+    int len;
+
+    /* create list store */
+    store = gtk_list_store_new (2,
+			        G_TYPE_BOOLEAN,
+			        G_TYPE_STRING);
+
+    if(!list)
+        goto end;
+    list = g_list_sort(list, (GCompareFunc)g_ascii_strcasecmp);
+    len = g_list_length(list);
+    
+    /* add data to the list store */
+    for (i = 0; i < len; i++)
+    {
+        char * name = g_list_nth_data(list, i);
+        gboolean perm = verifySharePerm(name);
+        gtk_list_store_append (store, &iter);
+        gtk_list_store_set (store, &iter,
+			    0, perm,
+                1, name,
+			    -1);
+    }
+    g_list_free(list);
+end:
+    return GTK_TREE_MODEL (store);
+}
+
+static void toggleAllow(GtkCellRendererToggle * cell, char * path_str, gpointer data)
+{
+    GtkTreeModel *model = (GtkTreeModel *)data;
+    GtkTreeIter  iter;
+    GtkTreePath *path = gtk_tree_path_new_from_string (path_str);
+    gboolean allow;
+    char * name;
+
+    /* get toggled iter */
+    gtk_tree_model_get_iter (model, &iter, path);
+    gtk_tree_model_get (model, &iter, 0, &allow, -1);
+    gtk_tree_model_get (model, &iter, 1, &name, -1);
+
+    /* do something with the value */
+    allow ^= 1;
+
+    GString * list = g_string_new(gaim_prefs_get_string(PREF_PERMITLIST));
+    GString * nw = g_string_new("#");
+    g_string_append(nw, name);
+    g_string_append_c(nw, '#');
+    
+    if(allow)
+    {
+        if(strstr(list->str, nw->str))
+            goto skip;
+
+        if(list->str && *(list->str) != '#')
+        {
+            g_string_prepend_c(list, '#');
+        }
+        g_string_prepend(list, name);
+        g_string_prepend_c(list, '#');
+    }
+    else
+    {
+        char * s;
+        if(!(s = strstr(list->str, nw->str)))
+            goto skip;
+        list = g_string_erase(list, s - list->str + 1, strlen(nw->str)-1);
+    }
+skip:
+    gaim_prefs_set_string(PREF_PERMITLIST, list->str);
+    g_string_free(nw, TRUE);
+    g_string_free(list, TRUE);
+
+    /* set new value */
+    gtk_list_store_set (GTK_LIST_STORE (model), &iter, 0, allow, -1);
+
+    /* clean up */
+    gtk_tree_path_free (path);
+}
+
+static void addColumns(GtkTreeView * view)
+{
+    GtkCellRenderer *renderer;
+    GtkTreeViewColumn *column;
+    GtkTreeModel *model = gtk_tree_view_get_model (view);
+
+    /* column for fixed toggles */
+    renderer = gtk_cell_renderer_toggle_new ();
+
+    g_signal_connect (renderer, "toggled",
+		    G_CALLBACK (toggleAllow), model);
+
+    column = gtk_tree_view_column_new_with_attributes ("Allow?",
+						     renderer,
+						     "active", 0,
+						     NULL);
+    /* set this column to a fixed sizing (of 50 pixels) */
+    gtk_tree_view_column_set_sizing (GTK_TREE_VIEW_COLUMN (column),
+				     GTK_TREE_VIEW_COLUMN_FIXED);
+    gtk_tree_view_column_set_fixed_width (GTK_TREE_VIEW_COLUMN (column), 50);
+/*    gtk_tree_view_column_set_sort_column_id (column, 0);*/
+    gtk_tree_view_append_column (view, column);
+
+    renderer = gtk_cell_renderer_text_new ();
+    column = gtk_tree_view_column_new_with_attributes ("Buddy",
+						       renderer,
+						       "text",
+						       1,
+						       NULL);
+/*    gtk_tree_view_column_set_sort_column_id (column, 1);*/
+    gtk_tree_view_append_column (view, column);
+}
+
+GtkWidget *get_config_frame(GaimPlugin *plugin)
+{
+    GtkWidget * ret;
+    GtkWidget * prefs, * buddies;
+    GtkWidget * scroll;
+    GtkTreeModel * model;
+
+#define SPACING 18
+    
+    ret = gtk_vbox_new(FALSE, 5);
+    gtk_container_set_border_width(GTK_CONTAINER(ret), 12);
+
+    prefs = gaim_gtk_make_frame(ret, "GAINT Preferences");
+
+    /* Trigger */
+    gaim_gtk_prefs_labeled_entry(prefs, "_Trigger Phrase:\t\t\t", PREF_TRIGGER, GTK_SIZE_GROUP(prefs));
+                                                        /* tabs for alignment :) */
+
+    /* Default Working Directory */
+    gaim_gtk_prefs_labeled_entry(prefs, "Default _Working Directory:\t", PREF_HOME, GTK_SIZE_GROUP(prefs));
+
+    /* Echo */
+    gaim_gtk_prefs_checkbox("_Echo GAINT Response", PREF_ECHOSEND, prefs);
+
+    /* List of Buddies */
+    prefs = gaim_gtk_make_frame(ret, "List of Buddies");
+    
+    /* from gtkprefs.c */
+	/* The following is an ugly hack to make the frame expand so the
+	 * sound events list is big enough to be usable */
+    gtk_box_set_child_packing(GTK_BOX(prefs->parent), prefs, TRUE, TRUE, 0,
+			GTK_PACK_START);
+	gtk_box_set_child_packing(GTK_BOX(prefs->parent->parent), prefs->parent, TRUE,
+			TRUE, 0, GTK_PACK_START);
+	gtk_box_set_child_packing(GTK_BOX(prefs->parent->parent->parent),
+			prefs->parent->parent, TRUE, TRUE, 0, GTK_PACK_START);
+
+    model = createModel();
+    buddies = gtk_tree_view_new_with_model(model);
+    gtk_tree_view_set_rules_hint (GTK_TREE_VIEW (buddies), TRUE);
+    gtk_tree_view_set_search_column (GTK_TREE_VIEW (buddies), 1);
+    g_object_unref (model);
+    addColumns(GTK_TREE_VIEW(buddies));
+
+    scroll = gtk_scrolled_window_new(NULL, NULL);
+    gtk_container_set_border_width(GTK_CONTAINER(scroll), 0);
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_AUTOMATIC, GTK_POLICY_AUTOMATIC);
+	gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW(scroll), GTK_SHADOW_IN);
+    gtk_container_add(GTK_CONTAINER(scroll), buddies);
+    gtk_box_pack_start(GTK_BOX(prefs), scroll, TRUE, TRUE, 0);
+
+    gtk_widget_show_all(ret);
+    
+    return ret;
+}
+
+static GaimGtkPluginUiInfo ui_info =
+{
+	get_config_frame
+};
+
+/*
+ * Prefs-info not necessary anymore, since we have UI-info
+ */
 /****** UI Stuff [end] ********/
 
 /* these defines ripped from gtkimhtl.c :-) */
@@ -256,7 +443,7 @@ static gboolean verifySharePerm(char *sender)
 
     GString *list = g_string_new("#");
     g_string_append(list, sender);
-    g_string_append(list, "#");
+    g_string_append_c(list, '#');
 
     if(strstr(gaim_prefs_get_string(PREF_PERMITLIST), list->str))
         ret = TRUE;
@@ -346,7 +533,7 @@ static GString * showList(GString *pwd, const char *pattern)
     {
         /* relative path. so add pwd */
         search = g_string_new(pwd->str);
-        g_string_append(search, "/");
+        g_string_append_c(search, '/');
     }
     else
         search = g_string_new("");
@@ -354,7 +541,7 @@ static GString * showList(GString *pwd, const char *pattern)
     
     GString * output = g_string_new("\nDirectory Listing of: ");
     g_string_append(output, search->str);
-    g_string_append(output, "\n");
+    g_string_append_c(output, '\n');
 
     glob(search->str, /*GLOB_MARK | */GLOB_NOESCAPE, NULL, &files);
     g_string_free(search, TRUE);
@@ -418,6 +605,12 @@ static gboolean receiving_im_msg_cb(GaimAccount *account, char **sender, char **
         goto skip;
     }
 
+    if(!GAIM_BUDDY_IS_ONLINE(gaim_find_buddy(account, *sender)))
+    {
+        /* the buddy is not online. no point sending the respone. */
+        goto skip;
+    }
+
     if(!verifySharePerm(*sender))
     {
         GString * output = g_string_new(":error: authorization failed");
@@ -434,8 +627,9 @@ static gboolean receiving_im_msg_cb(GaimAccount *account, char **sender, char **
     char * cwd = (char *) g_hash_table_lookup(pwdList, (char*)*sender);
     GString * pwd;
     if(cwd == NULL)
-    {   /* get the current working directory */
-        cwd = strdup(gaim_prefs_get_string(PREF_HOME));//char*)g_malloc(1024);  /* hoping an absolute path won't exceed this size */
+    {
+        /* get the default working directory from the preference */
+        cwd = strdup(gaim_prefs_get_string(PREF_HOME));
         pwd = g_string_new(cwd);
         g_hash_table_insert(pwdList, strdup(*sender), cwd);
     }
@@ -526,7 +720,7 @@ static gboolean receiving_im_msg_cb(GaimAccount *account, char **sender, char **
         {
             /* relative path, so add the pwd */
             g_string_append(filename, pwd->str);
-            g_string_append(filename, "/");
+            g_string_append_c(filename, '/');
         }
         g_string_append(filename, name);
 
@@ -541,7 +735,7 @@ static gboolean receiving_im_msg_cb(GaimAccount *account, char **sender, char **
     }
     else if(startsWith(cmd, "test"))
     {
-        /* test out debug-commands here. */
+        /* test out new-commands here. */
     }
     else if(startsWith(cmd, "help"))
     {
@@ -573,19 +767,13 @@ plugin_load(GaimPlugin *plugin)
     return TRUE;
 }
 
-
-static GaimPluginUiInfo prefs_info =
-{
-    get_plugin_pref_frame
-};
-
 static GaimPluginInfo info =
 {
     GAIM_PLUGIN_MAGIC,
     GAIM_MAJOR_VERSION,
     GAIM_MINOR_VERSION,
     GAIM_PLUGIN_STANDARD,                             /**< type           */
-    NULL,                                             /**< ui_requirement */
+    GAIM_GTK_PLUGIN_TYPE,                             /**< ui_requirement */
     0,                                                /**< flags          */
     NULL,                                             /**< dependencies   */
     GAIM_PRIORITY_DEFAULT,                            /**< priority       */
@@ -597,17 +785,17 @@ static GaimPluginInfo info =
     N_("Remotely share files."),
                                                       /**  description    */
     N_("Buddies can copy/send files even when you are away."),
-    "Sabit Anjum Sayeed <sabitas@gmail.com>, Sadrul Habib Chowdhury (imadil@gmail.com)",
+    "Sabit Anjum Sayeed <sabitas@gmail.com>\n\t\t\tSadrul Habib Chowdhury <imadil@gmail.com>",
                                                       /**< author         */
-    GAIM_WEBSITE,                                     /**< homepage       */
+    "http://gaint.berlios.de",                        /**< homepage       */
 
     plugin_load,                                      /**< load           */
     NULL,                                             /**< unload         */
     NULL,                                             /**< destroy        */
 
-    NULL,                                             /**< ui_info        */
+    &ui_info,                                         /**< ui_info        */
     NULL,                                             /**< extra_info     */
-    &prefs_info,                                      /**< preferece      */
+    NULL,                                             /**< preferece      */
     NULL
 };
 
@@ -616,7 +804,7 @@ init_plugin(GaimPlugin *plugin)
 {
     gaim_prefs_add_none(PREF_ROOT);
     gaim_prefs_add_string(PREF_TRIGGER, "!gaint");  /* default trigger */
-    gaim_prefs_add_string(PREF_PERMITLIST, "");
+    gaim_prefs_add_string(PREF_PERMITLIST, "#");
     gaim_prefs_add_string(PREF_HOME, "/home");  /* default home */
     gaim_prefs_add_bool(PREF_ECHOSEND, FALSE);
 }

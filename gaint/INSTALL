@@ -3,3 +3,6 @@
 3. Type `make gaint.so' and `make gaint.lo' in the plugins sub-directory
 4. Copy the resulting two files (gaint.so and gaint.lo) to the Gaim plugins directory (usually `/usr/lib/gaim' or `/usr/local/lib/gaim').
 5. Restart Gaim and go to Preferences dialog.
+
+Visit http://gaim.sourceforge.net/faq.php#q88 for details.
+
