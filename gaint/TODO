@@ -1,3 +1,4 @@
 - File Upload
 - Batch/Directory download
-- Split out of threshold download
+- Split download of large files
+

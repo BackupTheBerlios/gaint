@@ -1,7 +1,7 @@
 /**
  * GAim Is Not Telnet: GAINT
  *
- * @authors: Sabit Anjum Sayeed (sabit_a_s@yahoo.com)
+ * @authors: Sabit Anjum Sayeed (sabitas@gmail.com)
  *           Sadrul Habib Chowdhury (imadil@gmail.com)
  */
 
