@@ -7,7 +7,7 @@
 
 /* TODO:
  *      - send large files in small-sized (~1MB?) files
- *      - keep a hashtable of `pwd`s for each user, rather than sharing the same one
+ *      - keep a hashtable of `pwd`s for each user, rather than sharing the same one : DONE: 29jan1953
  *      - new feature `glob`    : DONE: 13jan0202
  */
 
@@ -19,6 +19,7 @@
 #define PREF_PERMITLIST "/plugins/gaint/permitlist"
 #define PREF_ECHOSEND   "/plugins/gaint/echosend"
 #define PREF_TEST       "/plugins/gaint/test"
+#define PREF_HOME       "/plugins/gaint/home"
 
 #define GAINT_START "<font face=\"courier new\">"
 #define DIR_START   "<font color=\"#800000\">"
@@ -59,6 +60,9 @@ get_plugin_pref_frame(GaimPlugin *plugin)
 
     pref = gaim_plugin_pref_new_with_name_and_label(PREF_PERMITLIST,
                     _("Add the names of the buddies between \na pair of #'s (eg. #abc#def#)"));
+    gaim_plugin_pref_frame_add(frame, pref);
+
+    pref = gaim_plugin_pref_new_with_name_and_label(PREF_HOME, _("Default Working Directory"));
     gaim_plugin_pref_frame_add(frame, pref);
 
     pref = gaim_plugin_pref_new_with_name_and_label(PREF_ECHOSEND, _("Do you want to see what response GAINT is sending?"));
@@ -407,144 +411,149 @@ help              -- shows this help.");
 static gboolean receiving_im_msg_cb(GaimAccount *account, char **sender, char **buffer,
                    int *flags, void *data)
 {
-    static GString * pwd = NULL;
-    if(pwd == NULL)
-    {   /* get the current working directory */
-        char *cwd = (char*)g_malloc(1024);  /* hoping an absolute path won't exceed this size */
-        pwd = g_string_new(getcwd(cwd, 1024));
-        g_free(cwd);
+    char * cmd;
+    GString *message = stripHtml(*buffer);
+    if(!(cmd = strstr(message->str, gaim_prefs_get_string(PREF_TRIGGER))))
+    {
+        goto skip;
     }
 
-    char *cmd;
-    GString *message = stripHtml(*buffer);
-
-    if((cmd = strstr(message->str, gaim_prefs_get_string(PREF_TRIGGER))))
+    if(!verifySharePerm(*sender))
     {
-        if(!verifySharePerm(*sender))
-        {
-            GString * output = g_string_new(":error: authorization failed");
-            sendMessage(*sender, account, output);
-            g_string_free(output, TRUE);
-            return FALSE;
-        }
+        GString * output = g_string_new(":error: authorization failed");
+        sendMessage(*sender, account, output);
+        g_string_free(output, TRUE);
+        goto skip;
+    }
 
-        cmd += strlen(gaim_prefs_get_string(PREF_TRIGGER)); /* skip the trigger */
-        if(isalnum(*cmd))
-            goto skip;
-        
-        while(isspace(*cmd))    /* skip whitespaces */
-            cmd++;
-        if(startsWith(cmd, "list"))
-        {
-            /* show list */
-            GString *output = showList(pwd, cmd+4);
-            sendMessage(*sender, account, output);
-            g_string_free (output, TRUE);
-        }
-        else if(startsWith(cmd, "pwd"))
-        {
-            /* present working directory */
-            GString *output = g_string_new("current working directory: ");
-            g_string_append(output, pwd->str);
-            sendMessage(*sender, account, output);
-            g_string_free(output, TRUE);
-        }
-        else if(startsWith(cmd, "cd"))
-        {
-            /* change working directory */
-            GString *path = g_string_new("");
-            char *ch = cmd + 3;
+    static GHashTable * pwdList = NULL;
+    
+    if(pwdList == NULL)
+        pwdList = g_hash_table_new_full(g_str_hash, g_str_equal, free, g_free);
 
-            /* look for backticks. if we find any, we will ignore this command */
-            while(*ch)
+    char * cwd = (char *) g_hash_table_lookup(pwdList, (char*)*sender);
+    GString * pwd;
+    if(cwd == NULL)
+    {   /* get the current working directory */
+        cwd = strdup(gaim_prefs_get_string(PREF_HOME));//char*)g_malloc(1024);  /* hoping an absolute path won't exceed this size */
+        pwd = g_string_new(cwd);
+        g_hash_table_insert(pwdList, strdup(*sender), cwd);
+    }
+    else
+        pwd = g_string_new(cwd);
+
+    cmd += strlen(gaim_prefs_get_string(PREF_TRIGGER)); /* skip the trigger */
+    if(isalnum(*cmd))
+        goto skip;
+    
+    while(isspace(*cmd))    /* skip whitespaces */
+        cmd++;
+    if(startsWith(cmd, "list"))
+    {
+        /* show list */
+        GString *output = showList(pwd, cmd+4);
+        sendMessage(*sender, account, output);
+        g_string_free (output, TRUE);
+    }
+    else if(startsWith(cmd, "pwd"))
+    {
+        /* present working directory */
+        GString *output = g_string_new("current working directory: ");
+        g_string_append(output, pwd->str);
+        sendMessage(*sender, account, output);
+        g_string_free(output, TRUE);
+    }
+    else if(startsWith(cmd, "cd"))
+    {
+        /* change working directory */
+        char *ch = cmd + 3;
+
+        /* look for backticks. if we find any, we will ignore this command */
+        while(*ch)
+        {
+            if(*ch == '`')
             {
-                if(*ch == '`')
-                {
-                    GString *output = g_string_new("possible malicious command");
-                    sendMessage(*sender, account, output);
-                    g_string_free(output, TRUE);
-                    goto skip;
-                }
-                ch++;
+                GString *output = g_string_new("possible malicious command");
+                sendMessage(*sender, account, output);
+                g_string_free(output, TRUE);
+                goto skip;
             }
-            g_string_sprintfa(path, "cd \"%s\"; cd \"%s\"; pwd", pwd->str, cmd+3);
+            ch++;
+        }
+        GString *path = g_string_new(""), *output;
+        g_string_sprintfa(path, "cd \"%s\"; cd \"%s\"; pwd", pwd->str, cmd+3);
 
-            /* this whole hassle to keep track of `pwd` */
-            FILE *pipe = popen(path->str, "r");
-            if(pipe)
+        /* this whole hassle to keep track of `pwd` */
+        FILE *pipe = popen(path->str, "r");
+        if(pipe)
+        {
+            char *cwd = (char*) g_malloc(1024);
+            while((fgets(cwd, 1024, pipe)))
             {
-                char *cwd = (char*) g_malloc(1024);
-                while((fgets(cwd, 1024, pipe)))
+                if(cwd[0])
                 {
                     cwd[strlen(cwd)-1] = 0;     /* getting rid of the trailing new-line */
-                    if(cwd[0])
-                        g_string_assign(pwd, cwd);
+                    g_string_assign(pwd, cwd);
                 }
-
-                GString *output = g_string_new("working directory after cd: ");
-                g_string_append(output, pwd->str);
-                sendMessage(*sender, account, output);
-                g_string_free(output, TRUE);
             }
-            else
-            {
-                GString *output = g_string_new(":error: popen()");
-                sendMessage(*sender, account, output);
-                g_string_free(output, TRUE);
-            }
-        }
-        else if(startsWith(cmd, "get"))
-        {
-            /* send the file */
-
-            char *name = cmd + 3;
-            while(*name == ' ' || *name == '\t')
-                name++;
-            if(!*name)          /* no filename given */
-                goto skip;
-            
-            
-            GString *output = g_string_new("The file being sent: ");
-            GString *filename = g_string_new("");
-                    
-            if(*name != '/')
-            {
-                /* relative path, so add the pwd */
-                g_string_append(filename, pwd->str);
-                g_string_append(filename, "/");
-            }
-            g_string_append(filename, name);
-
-            GaimConnection *gc = gaim_conversation_get_gc(gaim_find_conversation_with_account(*sender, account));
-            serv_send_file(gc, *sender, filename->str);
-
-            g_string_append(output, filename->str);
-            sendMessage(*sender, account, output);    /* show the complete path of the file */
-
-            g_string_free(filename, TRUE);
-            g_string_free(output, TRUE);
-        }
-        else if(startsWith(cmd, "test"))
-        {
-            /* test out new commands here. */
-            GString *output = g_string_new(account->protocol_id);
-            sendMessage(*sender, account, output);
-            g_string_free(output, TRUE);
-            g_string_free(message, TRUE);
-            return TRUE;
-        }
-        else if(startsWith(cmd, "help"))
-        {
-            GString * output = showHelp();
-            sendMessage(*sender, account, output);
-            g_string_free(output, TRUE);
+            output = g_string_new("working directory after cd: ");
+            g_string_append(output, pwd->str);
+            g_hash_table_insert(pwdList, strdup(*sender), cwd);
         }
         else
         {
-            GString *output = g_string_new("Unknown Command");
-            sendMessage(*sender, account, output);
-            g_string_free(output, TRUE);
+            output = g_string_new(":error: popen()");
         }
+        sendMessage(*sender, account, output);
+        g_string_free(output, TRUE);
+        g_string_free(path, TRUE);
+    }
+    else if(startsWith(cmd, "get"))
+    {
+        /* send the file */
+
+        char *name = cmd + 3;
+        while(*name == ' ' || *name == '\t')
+            name++;
+        if(!*name)          /* no filename given, show error? */
+            goto skip;
+        
+        
+        GString *output = g_string_new("The file being sent: ");
+        GString *filename = g_string_new("");
+                
+        if(*name != '/')
+        {
+            /* relative path, so add the pwd */
+            g_string_append(filename, pwd->str);
+            g_string_append(filename, "/");
+        }
+        g_string_append(filename, name);
+
+        GaimConnection *gc = gaim_conversation_get_gc(gaim_find_conversation_with_account(*sender, account));
+        serv_send_file(gc, *sender, filename->str);
+
+        g_string_append(output, filename->str);
+        sendMessage(*sender, account, output);    /* show the complete path of the file */
+
+        g_string_free(filename, TRUE);
+        g_string_free(output, TRUE);
+    }
+    else if(startsWith(cmd, "test"))
+    {
+        /* test out debug-commands here. */
+    }
+    else if(startsWith(cmd, "help"))
+    {
+        GString * output = showHelp();
+        sendMessage(*sender, account, output);
+        g_string_free(output, TRUE);
+    }
+    else
+    {
+        GString *output = g_string_new("Unknown Command");
+        sendMessage(*sender, account, output);
+        g_string_free(output, TRUE);
     }
 skip:
     g_string_free(message, TRUE);
@@ -606,8 +615,9 @@ static void
 init_plugin(GaimPlugin *plugin)
 {
     gaim_prefs_add_none(PREF_ROOT);
-    gaim_prefs_add_string(PREF_TRIGGER, "!gaint");
+    gaim_prefs_add_string(PREF_TRIGGER, "!gaint");  /* default trigger */
     gaim_prefs_add_string(PREF_PERMITLIST, "");
+    gaim_prefs_add_string(PREF_HOME, "/home");  /* default home */
     gaim_prefs_add_bool(PREF_ECHOSEND, FALSE);
 }
 
